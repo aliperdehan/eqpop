@@ -25,6 +25,9 @@ focus back to the app you came from. The preview can also be dragged into Keynot
 ## Build
 
     ./build.sh && open build/eqpop.app
+    ./build.sh --install      # also copies it to ~/Applications and starts it there
+
+The menu-bar menu has "Launch at login". The icon and the menu-bar glyph are set in STIX (SIL OFL, shipped with macOS).
 
 Needs only the Command Line Tools and a TeX distribution. The app is ad-hoc signed, not notarized: built on your
 own machine it opens normally; a downloaded copy needs System Settings → Privacy & Security → Open Anyway.

@@ -242,8 +242,28 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     func buildStatusItem() {
-        item.button?.image = NSImage(systemSymbolName: "function", accessibilityDescription: "eqpop")
+        item.button?.image = App.menuBarGlyph()
         rebuildMenu()
+    }
+
+    /// "f(x)" set in STIX (shipped with macOS, SIL OFL) as a template image, so the menu bar tints it; the app icon is
+    /// drawn from the same font. Falls back to the system symbol if the font is missing.
+    static func menuBarGlyph() -> NSImage? {
+        guard let it = NSFont(name: "STIXGeneral-Italic", size: 15), let up = NSFont(name: "STIXGeneral-Regular", size: 15) else {
+            return NSImage(systemSymbolName: "function", accessibilityDescription: "eqpop")
+        }
+        let s = NSMutableAttributedString()
+        for (t, f) in [("f", it), ("(", up), ("x", it), (")", up)] {
+            s.append(NSAttributedString(string: t, attributes: [.font: f, .foregroundColor: NSColor.black]))
+        }
+        let z = s.size()
+        let img = NSImage(size: NSSize(width: ceil(z.width) + 2, height: 18), flipped: false) { r in
+            s.draw(at: NSPoint(x: 1, y: (r.height - z.height) / 2 + 0.5))
+            return true
+        }
+        img.isTemplate = true
+        img.accessibilityDescription = "eqpop"
+        return img
     }
 
     func rebuildMenu() {

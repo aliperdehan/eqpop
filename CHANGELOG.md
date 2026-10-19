@@ -3,6 +3,14 @@
 Newest first. One minor version (`0.N.0`) per feature line; every commit after it in that line is a patch.
 The version is `eqpopVersion` in `Sources/eqpop/Store.swift`; a change, its entry here and the bump go in one commit.
 
+## 0.1.3 — 2026-10-20
+
+- **App icon**: an `f(x)` on a teal-to-blue tile, centred by its ink. `design/logo.swift` draws it,
+  `design/make-icns.sh` makes `design/eqpop.icns`, which `build.sh` puts in the app. Set in STIX (SIL OFL, shipped
+  with macOS), not in a proprietary font.
+- The menu-bar icon is the same `f(x)`, drawn in code as a template image (it was Apple's SF Symbol `function`,
+  whose licence does not allow it in an icon or logo).
+
 ## 0.1.2 — 2026-10-20
 
 - **`./build.sh --install`** builds, quits the running eqpop, copies the app to `~/Applications` and starts it, so
