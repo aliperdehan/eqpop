@@ -256,9 +256,12 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         for (t, f) in [("f", it), ("(", up), ("x", it), (")", up)] {
             s.append(NSAttributedString(string: t, attributes: [.font: f, .foregroundColor: NSColor.black]))
         }
-        let z = s.size()
-        let img = NSImage(size: NSSize(width: ceil(z.width) + 2, height: 18), flipped: false) { r in
-            s.draw(at: NSPoint(x: 1, y: (r.height - z.height) / 2 + 0.5))
+        let line = CTLineCreateWithAttributedString(s)
+        let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)   // the outlines: the italic f hangs left of its origin
+        let img = NSImage(size: NSSize(width: ceil(ink.width) + 4, height: 18), flipped: false) { r in
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return false }
+            ctx.textPosition = CGPoint(x: 2 - ink.minX, y: r.height / 2 - ink.midY)
+            CTLineDraw(line, ctx)
             return true
         }
         img.isTemplate = true

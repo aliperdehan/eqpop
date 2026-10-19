@@ -3,6 +3,10 @@
 Newest first. One minor version (`0.N.0`) per feature line; every commit after it in that line is a patch.
 The version is `eqpopVersion` in `Sources/eqpop/Store.swift`; a change, its entry here and the bump go in one commit.
 
+## 0.1.4 — 2026-10-20
+
+- The menu-bar `f(x)` is placed by its outlines: the hook of the italic f was cut off at the left.
+
 ## 0.1.3 — 2026-10-20
 
 - **App icon**: an `f(x)` on a teal-to-blue tile, centred by its ink. `design/logo.swift` draws it,
