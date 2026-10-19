@@ -1,13 +1,14 @@
 import Foundation
 
-let eqpopVersion = "0.1.4"
+let eqpopVersion = "0.1.5"
 
 /// What the app keeps on disk. The preamble is a plain file the user owns: it is written once, when missing, and
 /// never overwritten by the app; every render reads it from disk, so an edit in any editor counts at once.
 enum Store {
     static let appSupport: URL = {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("eqpop", isDirectory: true)
+        var dir = base.appendingPathComponent("eqpop", isDirectory: true)
+        if let home = ProcessInfo.processInfo.environment["EQPOP_HOME"] { dir = URL(fileURLWithPath: home, isDirectory: true) }   // tests and screenshots
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()

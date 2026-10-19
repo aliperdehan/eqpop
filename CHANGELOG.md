@@ -3,6 +3,13 @@
 Newest first. One minor version (`0.N.0`) per feature line; every commit after it in that line is a patch.
 The version is `eqpopVersion` in `Sources/eqpop/Store.swift`; a change, its entry here and the bump go in one commit.
 
+## 0.1.5 — 2026-10-20
+
+- `eqpop --screenshot OUT.png [--source TEXT]` writes a picture of the window (title bar, rounded corners, shadow)
+  without showing it, on scratch settings and with the default preamble (`EQPOP_HOME` points the app's data folder
+  elsewhere); it made `docs/screenshot.png` and `docs/errors.png` for the README.
+- README: screenshots, a download for Apple Silicon (a pre-release zip), install notes.
+
 ## 0.1.4 — 2026-10-20
 
 - The menu-bar `f(x)` is placed by its outlines: the hook of the italic f was cut off at the left.

@@ -22,10 +22,20 @@ focus back to the app you came from. The preview can also be dragged into Keynot
 - **Live**: the checkbox (or the menu) turns rendering-while-typing off; ⌘R renders, ⌘↩ renders and copies.
 - **Export**: Save… (⌘S) writes PDF, PNG or SVG (SVG needs `pdftocairo` from poppler, or `mutool`).
 
+<p align="center">
+  <img src="docs/screenshot.png" width="360" alt="eqpop rendering a chemical equation">
+  <img src="docs/errors.png" width="360" alt="eqpop listing a LaTeX error">
+</p>
+
 ## Install
 
+**Download** (Apple Silicon): `eqpop-<version>-macos-arm64.zip` from the
+[Releases](https://github.com/aliperdehan/eqpop/releases) page, unzip, move `eqpop.app` to `~/Applications` and open it.
+It is not notarized, so macOS refuses it the first time: System Settings → Privacy & Security → Open Anyway, or
+`xattr -dr com.apple.quarantine ~/Applications/eqpop.app`. Or build it from source:
+
 Needs macOS 13 or newer, the Xcode Command Line Tools (`xcode-select --install`) and a TeX distribution (MacTeX or
-BasicTeX). There is no download yet; build it from source:
+BasicTeX).
 
     git clone https://github.com/aliperdehan/eqpop.git
     cd eqpop

@@ -15,3 +15,9 @@ This repository is public: no personal details (absolute home paths, names) in c
 - Keystrokes cannot be sent to the app from here (no Accessibility permission): the hotkey, ⌘↩, drag-out and the
   save dialog are checked by the author.
 - Edits made with `defaults write` to the app's settings need `-string` for text that starts with a backslash.
+
+## Screenshots and releases
+
+`EQPOP_HOME=build/shot-home .build/release/eqpop --screenshot docs/screenshot.png` (and `--source '\chemfig{CH_4}'` for
+`docs/errors.png`) draws the window off screen: nothing appears, no keystroke can land in it. Release: `./build.sh`,
+`ditto -c -k --keepParent build/eqpop.app build/eqpop-X.Y.Z-macos-arm64.zip`, then `gh release create vX.Y.Z --prerelease`.

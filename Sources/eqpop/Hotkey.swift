@@ -1,7 +1,8 @@
 import Cocoa
 import Carbon.HIToolbox
 
-let defaults = UserDefaults.standard
+/// `--screenshot` runs on a scratch suite, so it neither reads nor changes the user's settings.
+let defaults: UserDefaults = CommandLine.arguments.contains("--screenshot") ? UserDefaults(suiteName: "eqpop-screenshot")! : .standard
 
 struct Shortcut {
     var code: UInt32

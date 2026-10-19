@@ -69,10 +69,13 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         t.textContainerInset = NSSize(width: 4, height: 6)
     }
 
+    static var screenshotPath: String?
+
     func applicationDidFinishLaunching(_ n: Notification) {
         _ = Store.preamble()   // creates the preamble file on the first launch only
         buildMainMenu()
         buildPanel()
+        if let out = App.screenshotPath { screenshot(to: out); return }
         buildStatusItem()
         HotKey.action = { [weak self] in self?.toggle() }
         if !hotkey.register(shortcut) {
@@ -215,6 +218,7 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         panel.hidesOnDeactivate = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = content
+        if App.screenshotPath != nil { panel.center(); return }   // never touch the saved frame
         panel.setFrameAutosaveName("eqpopPanel")
         if !panel.setFrameUsingName("eqpopPanel") { panel.center() }
     }
@@ -287,6 +291,52 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         m.addItem(.separator())
         m.addItem(withTitle: "Quit eqpop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.menu = m
+    }
+
+    /// Renders the sample, then writes the window (title bar included) to a PNG without ever putting it on screen.
+    func screenshot(to path: String) {
+        renderNow()
+        var waited = 0.0
+        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] t in
+            guard let self = self else { return }
+            waited += 0.2
+            let busy = self.status.stringValue.isEmpty || self.status.stringValue == "rendering…"
+            guard !busy || waited > 60 else { return }
+            t.invalidate()
+            self.panel.contentView?.layoutSubtreeIfNeeded()
+            guard let frame = self.panel.contentView?.superview, let rep = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { exit(1) }
+            frame.cacheDisplay(in: frame.bounds, to: rep)
+            let out = App.withWindowEdges(rep)
+            try? out.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            defaults.removePersistentDomain(forName: "eqpop-screenshot")
+            print("wrote \(path) (\(out.pixelsWide) × \(out.pixelsHigh))")
+            exit(0)
+        }
+    }
+
+    /// The captured frame has square corners and no shadow: round it and give it a shadow on a transparent margin.
+    static func withWindowEdges(_ rep: NSBitmapImageRep) -> NSBitmapImageRep {
+        let pad = 60, radius: CGFloat = 26
+        let w = rep.pixelsWide + 2 * pad, h = rep.pixelsHigh + 2 * pad
+        let out = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4,
+                                   hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: out)
+        let box = NSRect(x: pad, y: pad, width: rep.pixelsWide, height: rep.pixelsHigh)
+        let shape = NSBezierPath(roundedRect: box, xRadius: radius, yRadius: radius)
+        NSGraphicsContext.saveGraphicsState()
+        let sh = NSShadow()
+        sh.shadowOffset = NSSize(width: 0, height: -14); sh.shadowBlurRadius = 36
+        sh.shadowColor = NSColor.black.withAlphaComponent(0.45)
+        sh.set(); NSColor.black.setFill(); shape.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        shape.addClip()
+        let img = NSImage(size: NSSize(width: rep.pixelsWide, height: rep.pixelsHigh)); img.addRepresentation(rep)
+        img.draw(in: box)
+        NSColor(white: 1, alpha: 0.12).setStroke(); shape.lineWidth = 2; shape.stroke()   // the hairline macOS draws
+        NSGraphicsContext.restoreGraphicsState()
+        out.size = NSSize(width: w / 2, height: h / 2)   // 2x
+        return out
     }
 
     // MARK: show / hide
