@@ -20,11 +20,15 @@ focus back to the app you came from. The preview can also be dragged into Keynot
 - **Errors**: a failed render shows a table of every error (line, message, near) in place of the preview, like
   LaTeXiT; double-click a row to jump to the line. **Log** shows the full log.
 - **Live**: the checkbox (or the menu) turns rendering-while-typing off; ⌘R renders, ⌘↩ renders and copies.
+- **Looks**: follows the system's light or dark appearance (the preview stays a white sheet, so black text reads in
+  both). Line numbers in both editors. The preview sits above the editor, as in LaTeXiT, or below it: the menu-bar
+  menu and the View menu have "Preview above the editor" and "Line numbers".
 - **Export**: Save… (⌘S) writes PDF, PNG or SVG (SVG needs `pdftocairo` from poppler, or `mutool`).
 
 <p align="center">
-  <img src="docs/screenshot.png" width="360" alt="eqpop rendering a chemical equation">
-  <img src="docs/errors.png" width="360" alt="eqpop listing a LaTeX error">
+  <img src="docs/screenshot.png" width="270" alt="eqpop, dark appearance">
+  <img src="docs/screenshot-light.png" width="270" alt="eqpop, light appearance">
+  <img src="docs/errors.png" width="270" alt="eqpop listing a LaTeX error">
 </p>
 
 ## Install

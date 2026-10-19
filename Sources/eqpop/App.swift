@@ -55,6 +55,12 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     var hideAfterCopy = defaults.object(forKey: "hideAfterCopy") as? Bool ?? true
     var live = defaults.object(forKey: "live") as? Bool ?? true   // render while typing; off = only on ⌘R or ⌘↩
     var liveBox: NSButton!
+    var inputScroll: NSScrollView!
+    var chain: [NSLayoutConstraint] = []   // the vertical order of the rows; changes with the preview position
+    var content: NSView!
+    var rows: [NSView] = []                // preview, status, the pane (and the editor under it), the option row, the buttons
+    var lineNumbers = defaults.object(forKey: "lineNumbers") as? Bool ?? true
+    var previewAbove = defaults.object(forKey: "previewAbove") as? Bool ?? true   // LaTeXiT's order: the result on top
 
     static func plainCode(_ t: NSTextView) {
         t.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -70,9 +76,11 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     static var screenshotPath: String?
+    static var screenshotAppearance: String?   // "light" or "dark"; unset: the system's
 
     func applicationDidFinishLaunching(_ n: Notification) {
         _ = Store.preamble()   // creates the preamble file on the first launch only
+        if let a = App.screenshotAppearance { NSApp.appearance = NSAppearance(named: a == "light" ? .aqua : .darkAqua) }
         buildMainMenu()
         buildPanel()
         if let out = App.screenshotPath { screenshot(to: out); return }
@@ -96,6 +104,9 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         scroll.borderType = .bezelBorder
         scroll.heightAnchor.constraint(equalToConstant: 110).isActive = true
         inputEditing = TeXEditing(input)
+        inputScroll = scroll
+        scroll.verticalRulerView = LineNumbers(scroll, input)
+        scroll.hasVerticalRuler = true
 
         preambleScroll = NSTextView.scrollableTextView()
         preambleView = preambleScroll.documentView as? NSTextView
@@ -105,6 +116,8 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         preambleScroll.hasVerticalScroller = true
         preambleScroll.borderType = .bezelBorder
         preambleEditing = TeXEditing(preambleView)
+        preambleScroll.verticalRulerView = LineNumbers(preambleScroll, preambleView)
+        preambleScroll.hasVerticalRuler = true
         paneSeg = NSSegmentedControl(labels: ["Preamble", "pdfmd metadata"], trackingMode: .selectOne, target: self, action: #selector(paneChanged))
         paneSeg.controlSize = .small
         paneSeg.selectedSegment = 0
@@ -149,6 +162,8 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         preview.wantsLayer = true
         preview.layer?.backgroundColor = NSColor.white.cgColor   // black text stays readable in dark mode
         preview.layer?.cornerRadius = 6
+        preview.layer?.borderWidth = 1
+        preview.layer?.borderColor = NSColor(white: 0.5, alpha: 0.35).cgColor   // keeps the white sheet visible on a light window
         preview.setContentHuggingPriority(.defaultLow, for: .vertical)
         preview.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
         preview.dragItem = { [weak self] in self?.pasteboardItem() }
@@ -164,19 +179,17 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let copy = NSButton(title: "Copy  ⌘↩", target: self, action: #selector(copyRendered))
         copy.bezelStyle = .rounded
         // plain constraints, and every row but the preview has a fixed height: the preview takes all the extra room
-        let content = NSView()
+        content = NSView()
         let m: CGFloat = 12
         for v in [paneBox!, scroll, modePopup, enginePopup, pdfmdPopup, liveBox!, preview, errors.scroll, status, edit, save, logButton!, copy] {
             v.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(v)
         }
         NSLayoutConstraint.activate([
-            paneBox.topAnchor.constraint(equalTo: content.topAnchor, constant: m),
             paneBox.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             paneBox.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: m),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -m),
-            modePopup.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 8),
             modePopup.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             enginePopup.leadingAnchor.constraint(equalTo: modePopup.trailingAnchor, constant: 8),
             enginePopup.centerYAnchor.constraint(equalTo: modePopup.centerYAnchor),
@@ -184,17 +197,14 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             pdfmdPopup.centerYAnchor.constraint(equalTo: modePopup.centerYAnchor),
             liveBox.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
             liveBox.centerYAnchor.constraint(equalTo: modePopup.centerYAnchor),
-            preview.topAnchor.constraint(equalTo: modePopup.bottomAnchor, constant: 8),
             preview.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             preview.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
             errors.scroll.topAnchor.constraint(equalTo: preview.topAnchor),
             errors.scroll.bottomAnchor.constraint(equalTo: preview.bottomAnchor),
             errors.scroll.leadingAnchor.constraint(equalTo: preview.leadingAnchor),
             errors.scroll.trailingAnchor.constraint(equalTo: preview.trailingAnchor),
-            status.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 8),
             status.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             status.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
-            edit.topAnchor.constraint(equalTo: status.bottomAnchor, constant: 8),
             edit.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             save.leadingAnchor.constraint(equalTo: edit.trailingAnchor, constant: 8),
             save.centerYAnchor.constraint(equalTo: edit.centerYAnchor),
@@ -202,13 +212,16 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             logButton.centerYAnchor.constraint(equalTo: edit.centerYAnchor),
             copy.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
             copy.centerYAnchor.constraint(equalTo: edit.centerYAnchor),
-            edit.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -m),
         ])
 
         preambleHeight = paneBox.heightAnchor.constraint(equalToConstant: preambleShown ? App.preamblePaneHeight : 0)
         preambleGap = scroll.topAnchor.constraint(equalTo: paneBox.bottomAnchor, constant: preambleShown ? 8 : 0)
         NSLayoutConstraint.activate([preambleHeight, preambleGap])
         paneBox.isHidden = !preambleShown
+        rows = [preview, status, paneBox, modePopup, edit]   // the rows, see applyLayout
+        applyLayout()
+        scroll.rulersVisible = lineNumbers
+        preambleScroll.rulersVisible = lineNumbers
 
         panel = Panel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 520 + (preambleShown ? App.preamblePaneHeight + 8 : 0)),
                       styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -221,6 +234,44 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         if App.screenshotPath != nil { panel.center(); return }   // never touch the saved frame
         panel.setFrameAutosaveName("eqpopPanel")
         if !panel.setFrameUsingName("eqpopPanel") { panel.center() }
+    }
+
+    /// The rows run top to bottom in one chain: the preview and its status line, the pane with the editor, the options, the
+    /// buttons. The preview goes first or comes right after the editor and the options, as the user chose.
+    func applyLayout() {
+        NSLayoutConstraint.deactivate(chain)
+        let m: CGFloat = 12
+        let (preview, status, pane, options, buttons) = (rows[0], rows[1], rows[2], rows[3], rows[4])
+        let editor = inputScroll!
+        // each row as (its top view, its bottom view)
+        let order: [(NSView, NSView)] = previewAbove
+            ? [(preview, preview), (status, status), (pane, editor), (options, options), (buttons, buttons)]
+            : [(pane, editor), (options, options), (preview, preview), (status, status), (buttons, buttons)]
+        var c = [order[0].0.topAnchor.constraint(equalTo: content.topAnchor, constant: m),
+                 order[order.count - 1].1.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -m)]
+        for i in 1..<order.count { c.append(order[i].0.topAnchor.constraint(equalTo: order[i - 1].1.bottomAnchor, constant: 8)) }
+        chain = c
+        NSLayoutConstraint.activate(chain)
+    }
+
+    @objc func togglePreviewAbove() {
+        previewAbove.toggle()
+        defaults.set(previewAbove, forKey: "previewAbove")
+        applyLayout()
+        content.needsLayout = true
+    }
+
+    @objc func toggleLineNumbers() {
+        lineNumbers.toggle()
+        defaults.set(lineNumbers, forKey: "lineNumbers")
+        inputScroll.rulersVisible = lineNumbers
+        preambleScroll.rulersVisible = lineNumbers
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(togglePreviewAbove) { item.state = previewAbove ? .on : .off }
+        if item.action == #selector(toggleLineNumbers) { item.state = lineNumbers ? .on : .off }
+        return true
     }
 
     func buildMainMenu() {
@@ -242,6 +293,10 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         edit.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        let viewItem = NSMenuItem(); bar.addItem(viewItem)
+        let view = NSMenu(title: "View"); viewItem.submenu = view
+        view.addItem(withTitle: "Preview above the editor", action: #selector(togglePreviewAbove), keyEquivalent: "").target = self
+        view.addItem(withTitle: "Line numbers", action: #selector(toggleLineNumbers), keyEquivalent: "").target = self
         NSApp.mainMenu = bar
     }
 
@@ -284,6 +339,8 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let h = m.addItem(withTitle: "Hide after copying", action: #selector(toggleHideAfterCopy), keyEquivalent: "")
         h.target = self
         h.state = hideAfterCopy ? .on : .off
+        m.addItem(withTitle: "Preview above the editor", action: #selector(togglePreviewAbove), keyEquivalent: "").target = self
+        m.addItem(withTitle: "Line numbers", action: #selector(toggleLineNumbers), keyEquivalent: "").target = self
         let a = m.addItem(withTitle: "Launch at login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         a.target = self
         a.state = SMAppService.mainApp.status == .enabled ? .on : .off

@@ -3,6 +3,16 @@
 Newest first. One minor version (`0.N.0`) per feature line; every commit after it in that line is a patch.
 The version is `eqpopVersion` in `Sources/eqpop/Store.swift`; a change, its entry here and the bump go in one commit.
 
+## 0.2.0 — 2026-10-20
+
+- **Line numbers** in the source and the preamble editors (a wrapped line is numbered once). Menu: View → Line numbers.
+- **Preview position.** The preview and its status line go above the editor (the default, as in LaTeXiT) or below it:
+  View → Preview above the editor, also in the menu-bar menu. Remembered.
+- The preview sheet has a hairline border, so it shows on a light window.
+- `--screenshot` takes `--appearance light|dark` and `--below`; the README shows both appearances.
+- The appearance was always the system's (the window, text and highlight colours are system colours); this is the
+  first release that says so.
+
 ## 0.1.5 — 2026-10-20
 
 - `eqpop --screenshot OUT.png [--source TEXT]` writes a picture of the window (title bar, rounded corners, shadow)

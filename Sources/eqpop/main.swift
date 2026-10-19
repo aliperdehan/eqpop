@@ -11,7 +11,9 @@ if let i = cliArgs.firstIndex(of: "--screenshot") {
         ?? "\\ce{CH4 + 2O2 -> CO2 + 2H2O}\n\\qquad \\Delta H^\\circ = \\SI{-890}{\\kilo\\joule\\per\\mole}"
     defaults.set(sample, forKey: "source")
     defaults.set(true, forKey: "preambleShown")
+    if cliArgs.contains("--below") { defaults.set(false, forKey: "previewAbove") }
     App.screenshotPath = cliArgs[i + 1]
+    App.screenshotAppearance = cliArgs.firstIndex(of: "--appearance").map { cliArgs[$0 + 1] }
 }
 
 let app = NSApplication.shared
