@@ -1,6 +1,6 @@
 import Foundation
 
-let eqpopVersion = "0.1.1"
+let eqpopVersion = "0.1.2"
 
 /// What the app keeps on disk. The preamble is a plain file the user owns: it is written once, when missing, and
 /// never overwritten by the app; every render reads it from disk, so an edit in any editor counts at once.

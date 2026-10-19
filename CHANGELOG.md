@@ -3,6 +3,12 @@
 Newest first. One minor version (`0.N.0`) per feature line; every commit after it in that line is a patch.
 The version is `eqpopVersion` in `Sources/eqpop/Store.swift`; a change, its entry here and the bump go in one commit.
 
+## 0.1.2 — 2026-10-20
+
+- **`./build.sh --install`** builds, quits the running eqpop, copies the app to `~/Applications` and starts it, so
+  it opens from Spotlight or Launchpad without the terminal.
+- **Launch at login** in the menu-bar menu (macOS login item for the installed copy).
+
 ## 0.1.1 — 2026-10-20
 
 - **Live switch.** A checkbox in the window (and the menu) turns rendering-while-typing off. Off: ⌘R renders, ⌘↩

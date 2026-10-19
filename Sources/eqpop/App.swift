@@ -1,4 +1,5 @@
 import Cocoa
+import ServiceManagement
 
 final class Panel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -256,6 +257,9 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let h = m.addItem(withTitle: "Hide after copying", action: #selector(toggleHideAfterCopy), keyEquivalent: "")
         h.target = self
         h.state = hideAfterCopy ? .on : .off
+        let a = m.addItem(withTitle: "Launch at login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        a.target = self
+        a.state = SMAppService.mainApp.status == .enabled ? .on : .off
         m.addItem(withTitle: "Change shortcut (\(shortcut.label))…", action: #selector(changeShortcut), keyEquivalent: "").target = self
         m.addItem(.separator())
         m.addItem(withTitle: "Quit eqpop", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -530,6 +534,13 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     @objc func toggleHideAfterCopy() {
         hideAfterCopy.toggle()
         defaults.set(hideAfterCopy, forKey: "hideAfterCopy")
+        rebuildMenu()
+    }
+
+    @objc func toggleLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() } else { try SMAppService.mainApp.register() }
+        } catch { warn("Launch at login: \(error.localizedDescription)") }
         rebuildMenu()
     }
 
