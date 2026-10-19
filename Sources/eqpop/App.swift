@@ -222,7 +222,7 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(input)
-        input.selectAll(nil)
+        input.setSelectedRange(NSRange(location: input.string.utf16.count, length: 0))   // keep the text: a stray key must not wipe it
         if lastPDF == nil { schedule(after: 0) }
     }
 
