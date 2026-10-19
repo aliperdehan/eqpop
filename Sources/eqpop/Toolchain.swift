@@ -28,6 +28,23 @@ enum Toolchain {
         return found
     }
 
+    /// The pdfmd to run: `$EQPOP_PDFMD` (a script or an executable), else the author's checkout at
+    /// ~/dev/py/pdfmd/pdfmd.py when it exists, else `pdfmd` from the search directories (a pipx install).
+    static func pdfmdCommand() -> (exe: String, args: [String])? {
+        func script(_ path: String) -> (exe: String, args: [String])? {
+            guard FileManager.default.fileExists(atPath: path), let py = find("python3") else { return nil }
+            return (py, [path])
+        }
+        if let p = ProcessInfo.processInfo.environment["EQPOP_PDFMD"], !p.isEmpty {
+            let path = (p as NSString).expandingTildeInPath
+            if path.hasSuffix(".py") { return script(path) }
+            if FileManager.default.isExecutableFile(atPath: path) { return (path, []) }
+        }
+        let checkout = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("dev/py/pdfmd/pdfmd.py").path
+        if let c = script(checkout) { return c }
+        return find("pdfmd").map { ($0, []) }
+    }
+
     /// The environment for a child process: ours, with PATH replaced by the search directories.
     static var environment: [String: String] {
         var env = ProcessInfo.processInfo.environment

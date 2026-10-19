@@ -31,15 +31,19 @@ enum PDFTools {
         return bmp.representation(using: .png, properties: [:])
     }
 
-    /// Crops the first page to what is drawn on it, plus `pad` points. The engines crop to a box, which is not always
-    /// the ink (`align*` is as wide as the line); the ink is found on a bitmap, so this works for any engine's PDF
-    /// and needs no tool. The page stays vector: only its boxes change.
-    static func tight(_ pdf: Data, pad: CGFloat = 2) -> Data? {
+    /// Crops the first page to what is drawn on it (leaving out the bottom `ignoreBottom` points), plus `pad` points,
+    /// and keeps only that page. The engines crop to a
+    /// box, which is not always the ink (`align*` is as wide as the line); the ink is found on a bitmap, so this works
+    /// for any engine's PDF and needs no tool. The page stays vector: only its boxes change.
+    static func tight(_ pdf: Data, pad: CGFloat = 2, ignoreBottom: CGFloat = 0) -> (pdf: Data, pages: Int) {
         let scale: CGFloat = 4
         guard let rep = NSPDFImageRep(data: pdf), let bmp = bitmap(rep, scale: scale), let px = bmp.bitmapData,
-              let doc = PDFDocument(data: pdf), let page = doc.page(at: 0) else { return nil }
+              let doc = PDFDocument(data: pdf), let page = doc.page(at: 0) else { return (pdf: pdf, pages: 1) }
+        let pages = doc.pageCount
+        // a full page from pdfmd carries a page number in its bottom margin: that is not part of the snippet
+        let strip = bmp.pixelsHigh > Int(ignoreBottom * scale * 3) ? Int(ignoreBottom * scale) : 0
         var minX = bmp.pixelsWide, maxX = -1, minY = bmp.pixelsHigh, maxY = -1
-        for y in 0..<bmp.pixelsHigh {
+        for y in 0..<(bmp.pixelsHigh - strip) {
             let row = px + y * bmp.bytesPerRow
             for x in 0..<bmp.pixelsWide where row[x * 4 + 3] > 8 {
                 if x < minX { minX = x }
@@ -48,7 +52,7 @@ enum PDFTools {
                 maxY = y
             }
         }
-        guard maxX >= 0 else { return pdf }   // nothing drawn: leave the page as it is
+        guard maxX >= 0 else { return (pdf: pdf, pages: pages) }   // nothing drawn: leave the page as it is
         let media = page.bounds(for: .mediaBox)
         let ink = CGRect(x: media.minX + CGFloat(minX) / scale,
                          y: media.maxY - CGFloat(maxY + 1) / scale,
@@ -57,7 +61,8 @@ enum PDFTools {
         let box = ink.insetBy(dx: -pad, dy: -pad).intersection(media)
         page.setBounds(box, for: .mediaBox)
         page.setBounds(box, for: .cropBox)
-        return doc.dataRepresentation()
+        while doc.pageCount > 1 { doc.removePage(at: 1) }
+        return (pdf: doc.dataRepresentation() ?? pdf, pages: pages)
     }
 
     /// The page as SVG, through poppler's `pdftocairo` or else MuPDF's `mutool` (Homebrew: poppler, mupdf-tools).

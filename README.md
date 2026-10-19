@@ -10,6 +10,17 @@ focus back to the app you came from. The preview can also be dragged into Keynot
 - **Auto-crop**: the engine's `standalone` class crops the page, then the ink is measured and the page boxes are
   trimmed to it (any engine's PDF gets the same treatment; the page stays vector).
 - **Engines**: `pdflatex`, `lualatex`, `xelatex`, found by absolute path (a Finder-launched app has no PATH).
+  `pdflatex` renders from a cached, compiled preamble (the first render after a preamble change is slower).
+- **Markdown through pdfmd**: pick the `pdfmd` engine and the source is a Markdown document (math, `\ce{}`, tables,
+  whatever pdfmd builds), cropped to its ink like the rest. The preamble goes to pdfmd as `preamble.tex` and the
+  pane's "pdfmd metadata" tab as `metadata.yaml` (a `pdfmd-options:` block works there), so a house style applies;
+  a second popup picks pdfmd's PDF engine (typst takes about a second, pdflatex four, lualatex ten). It never renders
+  while typing: ⌘R or ⌘↩. The pdfmd used is `$EQPOP_PDFMD`, else `~/dev/py/pdfmd/pdfmd.py`, else `pdfmd` on the path
+  (`pipx install pdfmd-cli`).
+- **Errors**: a failed render shows a table of every error (line, message, near) in place of the preview, like
+  LaTeXiT; double-click a row to jump to the line. **Log** shows the full log.
+- **Live**: the checkbox (or the menu) turns rendering-while-typing off; ⌘R renders, ⌘↩ renders and copies.
+- **Export**: Save… (⌘S) writes PDF, PNG or SVG (SVG needs `pdftocairo` from poppler, or `mutool`).
 
 ## Build
 

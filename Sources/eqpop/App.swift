@@ -30,13 +30,20 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     let preview = PreviewView()
     let renderer = Renderer()
     var preambleView: NSTextView!
-    var preambleScroll: NSScrollView!
+    var preambleScroll: NSScrollView!   // the scroll view holding the pane's text view
+    var paneBox: NSView!                // the pane: its tab control and the scroll view
+    var paneSeg: NSSegmentedControl!    // 0 = LaTeX preamble, 1 = pdfmd metadata
+    let pdfmdPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    let errors = ErrorList()
+    let logWindow = LogWindow()
+    var lastLog = ""
+    var logButton: NSButton!
     var preambleHeight: NSLayoutConstraint!
     var preambleGap: NSLayoutConstraint!
     var inputEditing: TeXEditing!
     var preambleEditing: TeXEditing!
     var preambleShown = defaults.bool(forKey: "preambleShown")
-    static let preamblePaneHeight: CGFloat = 130
+    static let preamblePaneHeight: CGFloat = 156
     let hotkey = HotKey()
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     var shortcut = Shortcut.load()
@@ -45,6 +52,8 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     var wantCopy = false
     var debounce: Timer?
     var hideAfterCopy = defaults.object(forKey: "hideAfterCopy") as? Bool ?? true
+    var live = defaults.object(forKey: "live") as? Bool ?? true   // render while typing; off = only on ⌘R or ⌘↩
+    var liveBox: NSButton!
 
     static func plainCode(_ t: NSTextView) {
         t.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -92,6 +101,19 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         preambleScroll.hasVerticalScroller = true
         preambleScroll.borderType = .bezelBorder
         preambleEditing = TeXEditing(preambleView)
+        paneSeg = NSSegmentedControl(labels: ["Preamble", "pdfmd metadata"], trackingMode: .selectOne, target: self, action: #selector(paneChanged))
+        paneSeg.controlSize = .small
+        paneSeg.selectedSegment = 0
+        paneBox = NSView()
+        for v in [paneSeg!, preambleScroll!] { v.translatesAutoresizingMaskIntoConstraints = false; paneBox.addSubview(v) }
+        NSLayoutConstraint.activate([
+            paneSeg.topAnchor.constraint(equalTo: paneBox.topAnchor),
+            paneSeg.leadingAnchor.constraint(equalTo: paneBox.leadingAnchor),
+            preambleScroll.topAnchor.constraint(equalTo: paneSeg.bottomAnchor, constant: 4),
+            preambleScroll.leadingAnchor.constraint(equalTo: paneBox.leadingAnchor),
+            preambleScroll.trailingAnchor.constraint(equalTo: paneBox.trailingAnchor),
+            preambleScroll.bottomAnchor.constraint(equalTo: paneBox.bottomAnchor),
+        ])
 
         for m in Mode.allCases { modePopup.addItem(withTitle: m.title); modePopup.lastItem?.representedObject = m.rawValue }
         if let saved = defaults.string(forKey: "mode"), let m = Mode(rawValue: saved), let i = Mode.allCases.firstIndex(of: m) { modePopup.selectItem(at: i) }
@@ -100,11 +122,17 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         enginePopup.autoenablesItems = false
         for e in Engine.allCases {
             enginePopup.addItem(withTitle: e.rawValue)
-            enginePopup.lastItem?.isEnabled = Toolchain.find(e.rawValue) != nil
+            enginePopup.lastItem?.isEnabled = e == .pdfmd ? Toolchain.pdfmdCommand() != nil : Toolchain.find(e.rawValue) != nil
         }
         let savedEngine = Engine(rawValue: defaults.string(forKey: "engine") ?? "") ?? .pdflatex
         enginePopup.selectItem(withTitle: savedEngine.rawValue)
         enginePopup.target = self; enginePopup.action = #selector(optionsChanged)
+
+        pdfmdPopup.addItems(withTitles: pdfmdEngines)
+        pdfmdPopup.selectItem(withTitle: defaults.string(forKey: "pdfmdEngine") ?? "auto")
+        pdfmdPopup.toolTip = "The PDF engine pdfmd uses (its -e). auto: pdfmd's own choice."
+        pdfmdPopup.target = self; pdfmdPopup.action = #selector(optionsChanged)
+        applyEngineChoice()
 
         status.font = .systemFont(ofSize: 11)
         status.textColor = .secondaryLabelColor
@@ -120,31 +148,45 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         preview.setContentHuggingPriority(.defaultLow, for: .vertical)
         preview.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
         preview.dragItem = { [weak self] in self?.pasteboardItem() }
+        errors.onJump = { [weak self] line in self?.jump(toLine: line) }
+        errors.scroll.isHidden = true
 
+        liveBox = NSButton(checkboxWithTitle: "Live", target: self, action: #selector(toggleLive))
+        liveBox.state = live ? .on : .off
+        liveBox.toolTip = "Render while typing. Off: render with ⌘R, or with ⌘↩ (which also copies)."
         let edit = NSButton(title: "Preamble", target: self, action: #selector(togglePreamble))
         let save = NSButton(title: "Save…", target: self, action: #selector(saveAs))
+        logButton = NSButton(title: "Log", target: self, action: #selector(showLog))
         let copy = NSButton(title: "Copy  ⌘↩", target: self, action: #selector(copyRendered))
         copy.bezelStyle = .rounded
         // plain constraints, and every row but the preview has a fixed height: the preview takes all the extra room
         let content = NSView()
         let m: CGFloat = 12
-        for v in [preambleScroll!, scroll, modePopup, enginePopup, preview, status, edit, save, copy] {
+        for v in [paneBox!, scroll, modePopup, enginePopup, pdfmdPopup, liveBox!, preview, errors.scroll, status, edit, save, logButton!, copy] {
             v.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(v)
         }
         NSLayoutConstraint.activate([
-            preambleScroll.topAnchor.constraint(equalTo: content.topAnchor, constant: m),
-            preambleScroll.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
-            preambleScroll.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
+            paneBox.topAnchor.constraint(equalTo: content.topAnchor, constant: m),
+            paneBox.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
+            paneBox.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: m),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -m),
             modePopup.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 8),
             modePopup.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             enginePopup.leadingAnchor.constraint(equalTo: modePopup.trailingAnchor, constant: 8),
             enginePopup.centerYAnchor.constraint(equalTo: modePopup.centerYAnchor),
+            pdfmdPopup.leadingAnchor.constraint(equalTo: enginePopup.trailingAnchor, constant: 8),
+            pdfmdPopup.centerYAnchor.constraint(equalTo: modePopup.centerYAnchor),
+            liveBox.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
+            liveBox.centerYAnchor.constraint(equalTo: modePopup.centerYAnchor),
             preview.topAnchor.constraint(equalTo: modePopup.bottomAnchor, constant: 8),
             preview.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             preview.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
+            errors.scroll.topAnchor.constraint(equalTo: preview.topAnchor),
+            errors.scroll.bottomAnchor.constraint(equalTo: preview.bottomAnchor),
+            errors.scroll.leadingAnchor.constraint(equalTo: preview.leadingAnchor),
+            errors.scroll.trailingAnchor.constraint(equalTo: preview.trailingAnchor),
             status.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 8),
             status.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             status.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
@@ -152,15 +194,17 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             edit.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             save.leadingAnchor.constraint(equalTo: edit.trailingAnchor, constant: 8),
             save.centerYAnchor.constraint(equalTo: edit.centerYAnchor),
+            logButton.leadingAnchor.constraint(equalTo: save.trailingAnchor, constant: 8),
+            logButton.centerYAnchor.constraint(equalTo: edit.centerYAnchor),
             copy.trailingAnchor.constraint(equalTo: scroll.trailingAnchor),
             copy.centerYAnchor.constraint(equalTo: edit.centerYAnchor),
             edit.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -m),
         ])
 
-        preambleHeight = preambleScroll.heightAnchor.constraint(equalToConstant: preambleShown ? App.preamblePaneHeight : 0)
-        preambleGap = scroll.topAnchor.constraint(equalTo: preambleScroll.bottomAnchor, constant: preambleShown ? 8 : 0)
+        preambleHeight = paneBox.heightAnchor.constraint(equalToConstant: preambleShown ? App.preamblePaneHeight : 0)
+        preambleGap = scroll.topAnchor.constraint(equalTo: paneBox.bottomAnchor, constant: preambleShown ? 8 : 0)
         NSLayoutConstraint.activate([preambleHeight, preambleGap])
-        preambleScroll.isHidden = !preambleShown
+        paneBox.isHidden = !preambleShown
 
         panel = Panel(contentRect: NSRect(x: 0, y: 0, width: 520, height: 520 + (preambleShown ? App.preamblePaneHeight + 8 : 0)),
                       styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -182,6 +226,7 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let c = appMenu.addItem(withTitle: "Copy rendered result", action: #selector(copyRendered), keyEquivalent: "\r")
         c.keyEquivalentModifierMask = .command
         c.target = self
+        appMenu.addItem(withTitle: "Render now", action: #selector(renderNowAction), keyEquivalent: "r").target = self
         appMenu.addItem(withTitle: "Save as…", action: #selector(saveAs), keyEquivalent: "s").target = self
         let editItem = NSMenuItem(); bar.addItem(editItem)
         let edit = NSMenu(title: "Edit"); editItem.submenu = edit
@@ -205,6 +250,9 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         m.addItem(withTitle: "Show eqpop  (\(shortcut.label))", action: #selector(show), keyEquivalent: "").target = self
         m.addItem(withTitle: "Edit preamble", action: #selector(editPreamble), keyEquivalent: "").target = self
         m.addItem(withTitle: "Show preamble file in Finder", action: #selector(revealPreamble), keyEquivalent: "").target = self
+        let l = m.addItem(withTitle: "Live preview", action: #selector(toggleLive), keyEquivalent: "")
+        l.target = self
+        l.state = live ? .on : .off
         let h = m.addItem(withTitle: "Hide after copying", action: #selector(toggleHideAfterCopy), keyEquivalent: "")
         h.target = self
         h.state = hideAfterCopy ? .on : .off
@@ -223,7 +271,7 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(input)
         input.setSelectedRange(NSRange(location: input.string.utf16.count, length: 0))   // keep the text: a stray key must not wipe it
-        if lastPDF == nil { schedule(after: 0) }
+        if lastPDF == nil && !selectedEngine.isSlow { schedule(after: 0) }
     }
 
     /// Hiding the whole app (not just the panel) gives the focus back to the app the user came from.
@@ -246,22 +294,83 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     func textDidChange(_ n: Notification) {
         if (n.object as? NSTextView) === preambleView {
-            try? preambleView.string.write(to: Store.preambleURL, atomically: true, encoding: .utf8)   // the file is the preamble
-            schedule(after: 0.6)
+            let file = paneSeg.selectedSegment == 1 ? Store.metadataURL : Store.preambleURL
+            try? preambleView.string.write(to: file, atomically: true, encoding: .utf8)   // the file is the source of truth
+            changed(after: 0.6)
         } else {
             defaults.set(input.string, forKey: "source")
-            schedule(after: 0.4)
+            changed(after: 0.4)
         }
     }
 
     @objc func optionsChanged() {
         defaults.set(selectedMode.rawValue, forKey: "mode")
         defaults.set(selectedEngine.rawValue, forKey: "engine")
-        schedule(after: 0)
+        defaults.set(pdfmdPopup.titleOfSelectedItem ?? "auto", forKey: "pdfmdEngine")
+        applyEngineChoice()
+        changed(after: 0)
     }
+
+    /// What depends on the engine: pdfmd takes Markdown (no mode) and has a PDF engine of its own and a metadata tab.
+    func applyEngineChoice() {
+        let md = selectedEngine == .pdfmd
+        modePopup.isEnabled = !md
+        pdfmdPopup.isHidden = !md
+        paneSeg?.setEnabled(md, forSegment: 1)
+        if !md, paneSeg?.selectedSegment == 1 { paneSeg.selectedSegment = 0; loadPane() }
+    }
+
+    @objc func paneChanged() { loadPane() }
+
+    /// Shows the file of the selected tab (preamble or pdfmd metadata) in the pane.
+    func loadPane() {
+        let meta = paneSeg.selectedSegment == 1
+        preambleEditing.yaml = meta
+        preambleView.string = meta ? Store.metadata() : Store.preamble()
+    }
+
+    func makeRequest(_ src: String) -> RenderRequest {
+        RenderRequest(source: src, mode: selectedMode, engine: selectedEngine, preamble: Store.preamble(),
+                      pdfmdEngine: pdfmdPopup.titleOfSelectedItem ?? "auto", metadata: Store.metadata())
+    }
+
+    func jump(toLine line: Int) {
+        let s = input.string as NSString
+        var start = 0, n = 1
+        while n < line, start < s.length {
+            let r = s.range(of: "\n", range: NSRange(location: start, length: s.length - start))
+            if r.location == NSNotFound { break }
+            start = NSMaxRange(r); n += 1
+        }
+        let range = s.lineRange(for: NSRange(location: min(start, s.length), length: 0))
+        panel.makeFirstResponder(input)
+        input.setSelectedRange(range)
+        input.scrollRangeToVisible(range)
+    }
+
+    @objc func showLog() { logWindow.show(lastLog) }
 
     var selectedMode: Mode { Mode(rawValue: modePopup.selectedItem?.representedObject as? String ?? "") ?? .display }
     var selectedEngine: Engine { Engine(rawValue: enginePopup.titleOfSelectedItem ?? "") ?? .pdflatex }
+
+    /// The input changed: render after a pause when live, else just say that the preview is out of date.
+    func changed(after delay: TimeInterval) {
+        if live && !selectedEngine.isSlow { schedule(after: delay); return }
+        debounce?.invalidate()
+        renderer.cancel()
+        if selectedEngine.isSlow { setStatus("pdfmd takes a few seconds: ⌘R renders", error: false) }
+        else if lastPDF != nil { setStatus("edited: ⌘R renders", error: false) }
+    }
+
+    @objc func renderNowAction() { schedule(after: 0) }
+
+    @objc func toggleLive() {
+        live.toggle()
+        liveBox.state = live ? .on : .off
+        defaults.set(live, forKey: "live")
+        rebuildMenu()
+        if live { schedule(after: 0) } else { debounce?.invalidate() }
+    }
 
     func schedule(after delay: TimeInterval) {
         debounce?.invalidate()
@@ -270,29 +379,46 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     func renderNow() {
         let src = input.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        if src.isEmpty { renderer.cancel(); lastPDF = nil; preview.image = nil; setStatus("", error: false); return }
+        if src.isEmpty {
+            renderer.cancel(); lastPDF = nil; preview.image = nil; setStatus("", error: false)
+            errors.scroll.isHidden = true; preview.isHidden = false
+            return
+        }
         setStatus("rendering…", error: false)
         let started = Date()
-        let req = RenderRequest(source: src, mode: selectedMode, engine: selectedEngine, preamble: Store.preamble())
+        let req = makeRequest(src)
         let key = App.key(req)
         renderer.render(req) { [weak self] result in
             guard let self = self else { return }
             switch result {
-            case .success(let pdf):
+            case .success(let r):
+                let pdf = r.pdf
+                self.lastLog = r.log
+                self.errors.scroll.isHidden = true
+                self.preview.isHidden = false
                 self.lastPDF = pdf
                 self.lastKey = key
                 self.preview.image = NSImage(data: pdf)
                 let size = PDFTools.pointSize(pdf).map { String(format: "%.0f × %.0f pt", $0.width, $0.height) } ?? ""
-                self.setStatus(String(format: "%@ · %.2f s", size, Date().timeIntervalSince(started)), error: false)
+                let more = r.pages > 1 ? " · page 1 of \(r.pages)" : ""
+                self.setStatus(String(format: "%@ · %.2f s", size, Date().timeIntervalSince(started)) + more, error: false)
                 if self.wantCopy { self.wantCopy = false; self.finishCopy(pdf) }
             case .failure(.cancelled):
                 break
             case .failure(.noEngine(let name)):
                 self.failed()
-                self.setStatus("\(name) not found. Install TeX (MacTeX or BasicTeX) or pick another engine.", error: true)
-            case .failure(.failed(let why)):
+                let how = name == "pdfmd" ? "pipx install pdfmd-cli" : "install MacTeX or BasicTeX"
+                self.errors.scroll.isHidden = true
+                self.preview.isHidden = false
+                self.setStatus("\(name) not found (\(how)), or pick another engine.", error: true)
+            case .failure(.failed(let f)):
                 self.failed()
-                self.setStatus(why, error: true)
+                self.lastLog = f.log
+                self.errors.issues = f.issues
+                self.errors.scroll.isHidden = false
+                self.preview.isHidden = true
+                let n = f.issues.count
+                self.setStatus(f.issues.contains { $0.line != nil } ? "\(n) error\(n == 1 ? "" : "s"): double-click a line to jump to it" : "\(n) message\(n == 1 ? "" : "s")", error: true)
             }
         }
     }
@@ -303,7 +429,11 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         if wantCopy { wantCopy = false; NSSound.beep() }
     }
 
-    static func key(_ r: RenderRequest) -> String { "\(r.mode.rawValue)|\(r.engine.rawValue)|\(r.preamble)|\(r.source)" }
+    /// What a result was made from. pdfmd reads neither the mode nor eqpop's preamble, so they are not part of its key.
+    static func key(_ r: RenderRequest) -> String {
+        r.engine == .pdfmd ? "pdfmd|\(r.pdfmdEngine)|\(r.preamble)|\(r.metadata)|\(r.source)"
+                           : "\(r.mode.rawValue)|\(r.engine.rawValue)|\(r.preamble)|\(r.source)"
+    }
 
     func setStatus(_ s: String, error: Bool) {
         status.stringValue = s
@@ -316,7 +446,7 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     @objc func copyRendered() {
         // copy only a result made from exactly what is in the window now; otherwise render again and copy that
         let src = input.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        let now = App.key(RenderRequest(source: src, mode: selectedMode, engine: selectedEngine, preamble: Store.preamble()))
+        let now = App.key(makeRequest(src))
         if let pdf = lastPDF, lastKey == now { finishCopy(pdf) }
         else { wantCopy = true; schedule(after: 0) }
     }
@@ -353,12 +483,12 @@ final class App: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         guard shown != preambleShown else { return }
         preambleShown = shown
         defaults.set(shown, forKey: "preambleShown")
-        if shown { preambleView.string = Store.preamble() }   // an edit made in another editor is picked up
+        if shown { loadPane() }   // an edit made in another editor is picked up
         let delta = App.preamblePaneHeight + 8
         var f = panel.frame
         f.size.height += shown ? delta : -delta
         f.origin.y -= shown ? delta : -delta   // the top edge stays where it is
-        preambleScroll.isHidden = !shown
+        paneBox.isHidden = !shown
         preambleHeight.constant = shown ? App.preamblePaneHeight : 0
         preambleGap.constant = shown ? 8 : 0
         panel.setFrame(f, display: true, animate: false)
@@ -436,4 +566,78 @@ final class ChooserAction: NSObject {
     let body: () -> Void
     init(_ body: @escaping () -> Void) { self.body = body }
     @objc func go() { body() }
+}
+
+/// The failed render's errors in place of the preview: line, message, and the text TeX had just read.
+final class ErrorList: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    let scroll = NSScrollView()
+    private let table = NSTableView()
+    var onJump: ((Int) -> Void)?
+    var issues: [Issue] = [] { didSet { table.reloadData() } }
+
+    override init() {
+        super.init()
+        for (id, title, width) in [("line", "line", 44), ("message", "error message", 250), ("near", "near", 160)] {
+            let c = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
+            c.title = title
+            c.width = CGFloat(width)
+            table.addTableColumn(c)
+        }
+        table.dataSource = self
+        table.delegate = self
+        table.usesAlternatingRowBackgroundColors = true
+        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        table.target = self
+        table.doubleAction = #selector(clicked)
+        scroll.documentView = table
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { issues.count }
+
+    func tableView(_ tableView: NSTableView, viewFor column: NSTableColumn?, row: Int) -> NSView? {
+        let issue = issues[row]
+        let id = column?.identifier.rawValue ?? ""
+        let text = id == "line" ? (issue.line.map(String.init) ?? "–") : id == "message" ? issue.message : issue.near
+        let cell = NSTextField(labelWithString: text)
+        cell.lineBreakMode = .byTruncatingTail
+        cell.toolTip = text
+        if id != "message" { cell.font = .monospacedSystemFont(ofSize: 12, weight: .regular) }
+        if id == "line" { cell.alignment = .right }
+        return cell
+    }
+
+    @objc private func clicked() {
+        let r = table.clickedRow
+        if r >= 0, r < issues.count, let line = issues[r].line { onJump?(line) }
+    }
+}
+
+/// The full log of the last render, for when the list is not enough.
+final class LogWindow {
+    private let window: NSPanel
+    private let text: NSTextView
+
+    init() {
+        let scroll = NSTextView.scrollableTextView()
+        text = scroll.documentView as! NSTextView
+        text.isEditable = false
+        text.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 680, height: 440),
+                         styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.title = "eqpop log"
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+        window.hidesOnDeactivate = false
+        window.contentView = scroll
+        window.setFrameAutosaveName("eqpopLog")
+    }
+
+    func show(_ log: String) {
+        text.string = log.isEmpty ? "(no log yet)" : log
+        text.scrollToEndOfDocument(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
 }

@@ -13,6 +13,19 @@ final class TeXEditing: NSObject, NSTextStorageDelegate {
         ]
     }()
 
+    private static let yamlRules: [(NSRegularExpression, NSColor)] = {
+        func re(_ p: String) -> NSRegularExpression { try! NSRegularExpression(pattern: p, options: [.anchorsMatchLines]) }
+        return [
+            (re(#"^\s*-?\s*[A-Za-z0-9_.-]+(?=:)"#), .systemBlue),   // a key
+            (re(#"#[^\n]*"#), .systemGreen),
+        ]
+    }()
+
+    /// The metadata pane holds YAML, not TeX: its own few rules.
+    var yaml = false {
+        didSet { if yaml != oldValue, let ts = textView?.textStorage { colour(ts) } }
+    }
+
     private weak var textView: NSTextView?
     private var marked: [NSRange] = []
 
@@ -32,7 +45,7 @@ final class TeXEditing: NSObject, NSTextStorageDelegate {
         let all = NSRange(location: 0, length: ts.length)
         ts.addAttribute(.foregroundColor, value: NSColor.textColor, range: all)
         let text = ts.string
-        for (re, color) in TeXEditing.rules {
+        for (re, color) in (yaml ? TeXEditing.yamlRules : TeXEditing.rules) {
             re.enumerateMatches(in: text, range: all) { m, _, _ in
                 if let r = m?.range { ts.addAttribute(.foregroundColor, value: color, range: r) }
             }
